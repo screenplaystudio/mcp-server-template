@@ -12,6 +12,22 @@ NEXUDUS_PASSWORD = os.environ.get("NEXUDUS_PASSWORD")
 def get_auth():
     return (NEXUDUS_USERNAME, NEXUDUS_PASSWORD)
 
+def fetch_all(endpoint, params=None):
+    if params is None:
+        params = {}
+    params["size"] = 500
+    params["page"] = 1
+    all_records = []
+    while True:
+        r = requests.get(f"{NEXUDUS_BASE_URL}/{endpoint}", auth=get_auth(), params=params)
+        data = r.json()
+        records = data.get("Records", [])
+        all_records.extend(records)
+        if len(all_records) >= data.get("TotalItems", 0):
+            break
+        params["page"] += 1
+    return {"Records": all_records, "TotalItems": len(all_records)}
+
 # BOOKINGS
 
 @mcp.tool(description="List bookings with optional filters. Pass date as YYYY-MM-DD.")
@@ -19,8 +35,7 @@ def list_bookings(date: str = None) -> dict:
     params = {}
     if date:
         params["BookingStartTime"] = date
-    r = requests.get(f"{NEXUDUS_BASE_URL}/spaces/bookings", auth=get_auth(), params=params)
-    return r.json()
+    return fetch_all("spaces/bookings", params)
 
 @mcp.tool(description="Create a new booking. ResourceId, CoworkerId, StartTime and EndTime required. Times as ISO 8601.")
 def create_booking(resource_id: int, coworker_id: int, start_time: str, end_time: str) -> dict:
@@ -51,8 +66,7 @@ def list_helpdesk_messages(open_only: bool = False) -> dict:
     params = {}
     if open_only:
         params["Status"] = "Open"
-    r = requests.get(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages", auth=get_auth(), params=params)
-    return r.json()
+    return fetch_all("support/helpdeskMessages", params)
 
 @mcp.tool(description="Create a new help desk message.")
 def create_helpdesk_message(subject: str, message: str, coworker_id: int) -> dict:
@@ -81,8 +95,7 @@ def list_members(created_after: str = None) -> dict:
     params = {}
     if created_after:
         params["CreatedOn"] = created_after
-    r = requests.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", auth=get_auth(), params=params)
-    return r.json()
+    return fetch_all("spaces/coworkers", params)
 
 @mcp.tool(description="Get a single member by ID.")
 def get_member(coworker_id: int) -> dict:
@@ -104,8 +117,7 @@ def list_contracts(coworker_id: int = None) -> dict:
     params = {}
     if coworker_id:
         params["CoworkerId"] = coworker_id
-    r = requests.get(f"{NEXUDUS_BASE_URL}/billing/coworkercontracts", auth=get_auth(), params=params)
-    return r.json()
+    return fetch_all("billing/coworkercontracts", params)
 
 @mcp.tool(description="Cancel a contract by ID.")
 def cancel_contract(contract_id: int) -> dict:
@@ -124,8 +136,7 @@ def list_invoices(unpaid_only: bool = False, coworker_id: int = None) -> dict:
         params["Paid"] = False
     if coworker_id:
         params["CoworkerId"] = coworker_id
-    r = requests.get(f"{NEXUDUS_BASE_URL}/billing/coworkerinvoices", auth=get_auth(), params=params)
-    return r.json()
+    return fetch_all("billing/coworkerinvoices", params)
 
 @mcp.tool(description="Get a single invoice by ID.")
 def get_invoice(invoice_id: int) -> dict:
@@ -146,5 +157,5 @@ if __name__ == "__main__":
         transport="http",
         host=host,
         port=port,
-        stateless_http=True
+        stateless_http=False
     )
