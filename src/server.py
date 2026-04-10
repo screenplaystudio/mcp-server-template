@@ -15,7 +15,7 @@ def get_auth():
 def fetch_all(endpoint, params=None):
     if params is None:
         params = {}
-    params["size"] = 500
+    params["size"] = 250
     params["page"] = 1
     all_records = []
     while True:
@@ -23,7 +23,7 @@ def fetch_all(endpoint, params=None):
         data = r.json()
         records = data.get("Records", [])
         all_records.extend(records)
-        if len(all_records) >= data.get("TotalItems", 0):
+        if not data.get("HasNextPage", False):
             break
         params["page"] += 1
     return {"Records": all_records, "TotalItems": len(all_records)}
@@ -94,8 +94,12 @@ def close_helpdesk_message(message_id: int) -> dict:
 def list_members(created_after: str = None) -> dict:
     params = {}
     if created_after:
-        params["CreatedOn"] = created_after
+        params["from_Coworker_CreatedOn"] = created_after
     return fetch_all("spaces/coworkers", params)
+
+@mcp.tool(description="List all members with an active status in Nexudus.")
+def list_active_members() -> dict:
+    return fetch_all("spaces/coworkers", {"Coworker_Active": True})
 
 @mcp.tool(description="Get a single member by ID.")
 def get_member(coworker_id: int) -> dict:
