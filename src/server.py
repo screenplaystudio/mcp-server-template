@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import os
 import requests
+from dotenv import load_dotenv
+load_dotenv()
 from fastmcp import FastMCP
 
 mcp = FastMCP("Nexudus MCP Server")
@@ -8,6 +10,8 @@ mcp = FastMCP("Nexudus MCP Server")
 NEXUDUS_BASE_URL = "https://spaces.nexudus.com/api"
 NEXUDUS_USERNAME = os.environ.get("NEXUDUS_USERNAME")
 NEXUDUS_PASSWORD = os.environ.get("NEXUDUS_PASSWORD")
+print(f"Username: {NEXUDUS_USERNAME}")
+print(f"Password set: {NEXUDUS_PASSWORD is not None}")
 
 def get_auth():
     return (NEXUDUS_USERNAME, NEXUDUS_PASSWORD)
@@ -15,11 +19,13 @@ def get_auth():
 def fetch_all(endpoint, params=None):
     if params is None:
         params = {}
-    params["size"] = 250
+    params["size"] = 25
     params["page"] = 1
     all_records = []
     while True:
-        r = requests.get(f"{NEXUDUS_BASE_URL}/{endpoint}", auth=get_auth(), params=params)
+        r = requests.get(f"{NEXUDUS_BASE_URL}/{endpoint}", auth=get_auth(), params=params, timeout=30)
+        print(f"Status: {r.status_code}")
+        print(f"Response: {r.text[:500]}")
         data = r.json()
         records = data.get("Records", [])
         all_records.extend(records)
@@ -90,6 +96,12 @@ def close_helpdesk_message(message_id: int) -> dict:
 
 # MEMBERS
 
+@mcp.tool(description="Search for a member by name or email address.")
+def search_member(query: str) -> dict:
+    params = {"Coworker_FullName": query}
+    r = requests.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", auth=get_auth(), params=params, timeout=30)
+    return r.json()
+
 @mcp.tool(description="List all members/coworkers. Pass created_after as YYYY-MM-DD to filter new signups.")
 def list_members(created_after: str = None) -> dict:
     params = {}
@@ -97,9 +109,12 @@ def list_members(created_after: str = None) -> dict:
         params["from_Coworker_CreatedOn"] = created_after
     return fetch_all("spaces/coworkers", params)
 
-@mcp.tool(description="List all members with an active status in Nexudus.")
-def list_active_members() -> dict:
-    return fetch_all("spaces/coworkers", {"Coworker_Active": True})
+@mcp.tool(description="Get the total count of active members.")
+def get_member_count() -> dict:
+    params = {"Coworker_Active": True, "size": 1}
+    r = requests.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", auth=get_auth(), params=params, timeout=30)
+    data = r.json()
+    return {"total_active_members": data.get("TotalItems", 0)}
 
 @mcp.tool(description="Get a single member by ID.")
 def get_member(coworker_id: int) -> dict:
