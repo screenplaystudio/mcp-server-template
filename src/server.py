@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
 import time
+import base64
 import requests
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
@@ -15,9 +17,10 @@ NEXUDUS_PASSWORD = os.environ.get("NEXUDUS_PASSWORD")
 
 session = requests.Session()
 
-def get_auth():
-    username = NEXUDUS_USERNAME.replace("+", "%2B") if NEXUDUS_USERNAME else ""
-    return (username, NEXUDUS_PASSWORD)
+def get_headers():
+    credentials = f"{NEXUDUS_USERNAME}:{NEXUDUS_PASSWORD}"
+    encoded = base64.b64encode(credentials.encode()).decode()
+    return {"Authorization": f"Basic {encoded}"}
 
 def fetch_all(endpoint, params=None):
     if params is None:
@@ -26,7 +29,7 @@ def fetch_all(endpoint, params=None):
     params["page"] = 1
     all_records = []
     while True:
-        r = session.get(f"{NEXUDUS_BASE_URL}/{endpoint}", auth=get_auth(), params=params, timeout=30)
+        r = session.get(f"{NEXUDUS_BASE_URL}/{endpoint}", headers=get_headers(), params=params, timeout=30)
         if r.status_code == 429:
             time.sleep(10)
             continue
@@ -50,42 +53,40 @@ def fetch_all(endpoint, params=None):
 
 @mcp.tool(description="List bookings for a given date. Pass date as YYYY-MM-DD. Defaults to today.")
 def list_bookings(date: str = None) -> dict:
-    from datetime import datetime, timezone, timedelta
     if not date:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # Collingwood is UTC-4 (EDT), so adjust to get full local day in UTC
+    next_day = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
     params = {
         "from_Booking_FromTime": f"{date}T04:00",
-        "to_Booking_FromTime": f"{date}T04:00",
+        "to_Booking_FromTime": f"{next_day}T03:59",
         "size": 100
     }
-    # Calculate next day for end of range
-    next_day = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    params["from_Booking_FromTime"] = f"{date}T04:00"
-    params["to_Booking_FromTime"] = f"{next_day}T03:59"
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/bookings", auth=get_auth(), params=params, timeout=30)
-    return r.json()
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/bookings", headers=get_headers(), params=params, timeout=30)
+    try:
+        return r.json()
+    except Exception:
+        return {"error": f"Status {r.status_code}", "body": r.text[:200]}
 
 @mcp.tool(description="Create a new booking. ResourceId, CoworkerId, StartTime and EndTime required. Times as ISO 8601.")
 def create_booking(resource_id: int, coworker_id: int, start_time: str, end_time: str) -> dict:
     data = {"ResourceId": resource_id, "CoworkerId": coworker_id, "FromTime": start_time, "ToTime": end_time}
-    r = session.post(f"{NEXUDUS_BASE_URL}/spaces/bookings", auth=get_auth(), json=data, timeout=30)
+    r = session.post(f"{NEXUDUS_BASE_URL}/spaces/bookings", headers=get_headers(), json=data, timeout=30)
     return r.json()
 
 @mcp.tool(description="Update an existing booking by ID.")
 def update_booking(booking_id: int, start_time: str = None, end_time: str = None) -> dict:
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/bookings/{booking_id}", auth=get_auth(), timeout=30)
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/bookings/{booking_id}", headers=get_headers(), timeout=30)
     booking = r.json()
     if start_time:
         booking["FromTime"] = start_time
     if end_time:
         booking["ToTime"] = end_time
-    r = session.put(f"{NEXUDUS_BASE_URL}/spaces/bookings/{booking_id}", auth=get_auth(), json=booking, timeout=30)
+    r = session.put(f"{NEXUDUS_BASE_URL}/spaces/bookings/{booking_id}", headers=get_headers(), json=booking, timeout=30)
     return r.json()
 
 @mcp.tool(description="Cancel/delete a booking by ID.")
 def cancel_booking(booking_id: int) -> dict:
-    r = session.delete(f"{NEXUDUS_BASE_URL}/spaces/bookings/{booking_id}", auth=get_auth(), timeout=30)
+    r = session.delete(f"{NEXUDUS_BASE_URL}/spaces/bookings/{booking_id}", headers=get_headers(), timeout=30)
     return {"status": r.status_code}
 
 # HELP DESK
@@ -100,21 +101,21 @@ def list_helpdesk_messages(open_only: bool = False) -> dict:
 @mcp.tool(description="Create a new help desk message.")
 def create_helpdesk_message(subject: str, message: str, coworker_id: int) -> dict:
     data = {"Subject": subject, "Message": message, "CoworkerId": coworker_id}
-    r = session.post(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages", auth=get_auth(), json=data, timeout=30)
+    r = session.post(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages", headers=get_headers(), json=data, timeout=30)
     return r.json()
 
 @mcp.tool(description="Reply to a help desk message by ID.")
 def reply_to_helpdesk_message(message_id: int, reply: str) -> dict:
     data = {"HelpDeskMessageId": message_id, "Message": reply}
-    r = session.post(f"{NEXUDUS_BASE_URL}/support/helpdeskComments", auth=get_auth(), json=data, timeout=30)
+    r = session.post(f"{NEXUDUS_BASE_URL}/support/helpdeskComments", headers=get_headers(), json=data, timeout=30)
     return r.json()
 
 @mcp.tool(description="Close a help desk message by ID.")
 def close_helpdesk_message(message_id: int) -> dict:
-    r = session.get(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages/{message_id}", auth=get_auth(), timeout=30)
+    r = session.get(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages/{message_id}", headers=get_headers(), timeout=30)
     msg = r.json()
     msg["Status"] = "Closed"
-    r = session.put(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages/{message_id}", auth=get_auth(), json=msg, timeout=30)
+    r = session.put(f"{NEXUDUS_BASE_URL}/support/helpdeskMessages/{message_id}", headers=get_headers(), json=msg, timeout=30)
     return r.json()
 
 # MEMBERS
@@ -122,34 +123,43 @@ def close_helpdesk_message(message_id: int) -> dict:
 @mcp.tool(description="Search for a member by name or email address.")
 def search_member(query: str) -> dict:
     params = {"Coworker_FullName": query}
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", auth=get_auth(), params=params, timeout=30)
-    return r.json()
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", headers=get_headers(), params=params, timeout=30)
+    try:
+        return r.json()
+    except Exception:
+        return {"error": f"Status {r.status_code}", "body": r.text[:200]}
 
 @mcp.tool(description="Get the total count of active members.")
 def get_member_count() -> dict:
     params = {"Coworker_Active": True, "size": 1}
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", auth=get_auth(), params=params, timeout=30)
-    data = r.json()
-    return {"total_active_members": data.get("TotalItems", 0)}
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", headers=get_headers(), params=params, timeout=30)
+    try:
+        data = r.json()
+        return {"total_active_members": data.get("TotalItems", 0)}
+    except Exception:
+        return {"error": f"Status {r.status_code}", "body": r.text[:200]}
 
 @mcp.tool(description="Get a single member by ID.")
 def get_member(coworker_id: int) -> dict:
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers/{coworker_id}", auth=get_auth(), timeout=30)
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers/{coworker_id}", headers=get_headers(), timeout=30)
     return r.json()
 
 @mcp.tool(description="Update a member's details by ID.")
 def update_member(coworker_id: int, updates: dict) -> dict:
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers/{coworker_id}", auth=get_auth(), timeout=30)
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers/{coworker_id}", headers=get_headers(), timeout=30)
     member = r.json()
     member.update(updates)
-    r = session.put(f"{NEXUDUS_BASE_URL}/spaces/coworkers/{coworker_id}", auth=get_auth(), json=member, timeout=30)
+    r = session.put(f"{NEXUDUS_BASE_URL}/spaces/coworkers/{coworker_id}", headers=get_headers(), json=member, timeout=30)
     return r.json()
 
 @mcp.tool(description="List new member signups. Pass created_after as YYYY-MM-DD.")
 def list_new_members(created_after: str) -> dict:
     params = {"from_Coworker_CreatedOn": created_after, "size": 25}
-    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", auth=get_auth(), params=params, timeout=30)
-    return r.json()
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/coworkers", headers=get_headers(), params=params, timeout=30)
+    try:
+        return r.json()
+    except Exception:
+        return {"error": f"Status {r.status_code}", "body": r.text[:200]}
 
 # CONTRACTS
 
@@ -162,10 +172,10 @@ def list_contracts(coworker_id: int = None) -> dict:
 
 @mcp.tool(description="Cancel a contract by ID.")
 def cancel_contract(contract_id: int) -> dict:
-    r = session.get(f"{NEXUDUS_BASE_URL}/billing/coworkercontracts/{contract_id}", auth=get_auth(), timeout=30)
+    r = session.get(f"{NEXUDUS_BASE_URL}/billing/coworkercontracts/{contract_id}", headers=get_headers(), timeout=30)
     contract = r.json()
     contract["CancellationDate"] = "today"
-    r = session.put(f"{NEXUDUS_BASE_URL}/billing/coworkercontracts/{contract_id}", auth=get_auth(), json=contract, timeout=30)
+    r = session.put(f"{NEXUDUS_BASE_URL}/billing/coworkercontracts/{contract_id}", headers=get_headers(), json=contract, timeout=30)
     return r.json()
 
 # INVOICES
@@ -181,13 +191,13 @@ def list_invoices(unpaid_only: bool = False, coworker_id: int = None) -> dict:
 
 @mcp.tool(description="Get a single invoice by ID.")
 def get_invoice(invoice_id: int) -> dict:
-    r = session.get(f"{NEXUDUS_BASE_URL}/billing/coworkerinvoices/{invoice_id}", auth=get_auth(), timeout=30)
+    r = session.get(f"{NEXUDUS_BASE_URL}/billing/coworkerinvoices/{invoice_id}", headers=get_headers(), timeout=30)
     return r.json()
 
 @mcp.tool(description="Create a new invoice for a member.")
 def create_invoice(coworker_id: int, amount: float, description: str) -> dict:
     data = {"CoworkerId": coworker_id, "Amount": amount, "Notes": description}
-    r = session.post(f"{NEXUDUS_BASE_URL}/billing/coworkerinvoices", auth=get_auth(), json=data, timeout=30)
+    r = session.post(f"{NEXUDUS_BASE_URL}/billing/coworkerinvoices", headers=get_headers(), json=data, timeout=30)
     return r.json()
 
 if __name__ == "__main__":
