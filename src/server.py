@@ -50,14 +50,19 @@ def fetch_all(endpoint, params=None):
 
 @mcp.tool(description="List bookings for a given date. Pass date as YYYY-MM-DD. Defaults to today.")
 def list_bookings(date: str = None) -> dict:
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     if not date:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Collingwood is UTC-4 (EDT), so adjust to get full local day in UTC
     params = {
-        "from_Booking_FromTime": f"{date}T00:00",
-        "to_Booking_FromTime": f"{date}T23:59",
+        "from_Booking_FromTime": f"{date}T04:00",
+        "to_Booking_FromTime": f"{date}T04:00",
         "size": 100
     }
+    # Calculate next day for end of range
+    next_day = (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    params["from_Booking_FromTime"] = f"{date}T04:00"
+    params["to_Booking_FromTime"] = f"{next_day}T03:59"
     r = session.get(f"{NEXUDUS_BASE_URL}/spaces/bookings", auth=get_auth(), params=params, timeout=30)
     return r.json()
 
