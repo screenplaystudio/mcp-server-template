@@ -30,7 +30,12 @@ def fetch_all(endpoint, params=None):
         if r.status_code == 429:
             time.sleep(10)
             continue
-        data = r.json()
+        if not r.text or r.status_code != 200:
+            break
+        try:
+            data = r.json()
+        except Exception:
+            break
         records = data.get("Records", [])
         if not records:
             break
