@@ -48,12 +48,18 @@ def fetch_all(endpoint, params=None):
 
 # BOOKINGS
 
-@mcp.tool(description="List bookings with optional filters. Pass date as YYYY-MM-DD.")
+@mcp.tool(description="List bookings for a given date. Pass date as YYYY-MM-DD. Defaults to today.")
 def list_bookings(date: str = None) -> dict:
-    params = {}
-    if date:
-        params["BookingStartTime"] = date
-    return fetch_all("spaces/bookings", params)
+    from datetime import datetime, timezone
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    params = {
+        "from_Booking_FromTime": f"{date}T00:00",
+        "to_Booking_FromTime": f"{date}T23:59",
+        "size": 100
+    }
+    r = session.get(f"{NEXUDUS_BASE_URL}/spaces/bookings", auth=get_auth(), params=params, timeout=30)
+    return r.json()
 
 @mcp.tool(description="Create a new booking. ResourceId, CoworkerId, StartTime and EndTime required. Times as ISO 8601.")
 def create_booking(resource_id: int, coworker_id: int, start_time: str, end_time: str) -> dict:
